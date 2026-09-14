@@ -1,0 +1,18 @@
+# Dev documentation
+chunk_factory_dev_doc.md
+
+# uv / Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+mcp_tools.log
+
+# Backups
+*.bak*
+
+# OS
+.DS_Store
+Thumbs.db
