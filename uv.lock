@@ -295,7 +295,7 @@ cli = [
 ]
 
 [[package]]
-name = "mcp-2"
+name = "mcp-anki"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

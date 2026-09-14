@@ -1,7 +1,7 @@
 [project]
-name = "mcp-2"
+name = "mcp-anki"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP server for creating and editing Anki notes and deck limits via AnkiConnect"
 requires-python = ">=3.13"
 dependencies = [
     "mcp[cli]>=1.27.1",
