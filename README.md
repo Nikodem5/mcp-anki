@@ -1,0 +1,70 @@
+# mcp-anki
+
+An MCP server that exposes Anki to an MCP client (Claude Desktop, Claude Code) through the
+[AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on.
+
+Anki is the only data store, the server keeps no state of its own.
+
+## Requirements
+
+- Python 3.13+ and [uv](https://docs.astral.sh/uv/)
+- Anki Desktop running, with AnkiConnect (add-on code `2055492159`) on `localhost:8765`
+
+## Run
+
+```bash
+uv sync
+uv run server.py
+```
+
+Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "chunk-factory": {
+      "command": "FULL_PATH_TO_UV",
+      "args": ["--directory", "FULL_PATH_TO_PROJECT", "run", "server.py"]
+    }
+  }
+}
+```
+
+Anki has to be open for anything except `hello` to work.
+
+## Tools
+
+| Tool | Purpose |
+|---|---|
+| `hello` | Confirm the server is running |
+| `test_anki_connection` | Confirm AnkiConnect is reachable |
+| `anki_check_exists` | Search for existing notes before creating a duplicate |
+| `anki_add_card` | Create a Basic card in a deck |
+| `anki_get_notes` | Fetch fields, tags, and deck for notes matching a query |
+| `anki_update_card` | Update front, back, and/or tags of a note |
+| `anki_delete_note` | Delete a note and its cards |
+| `anki_get_deck_preset_limits` | Read new/day and review/day from the deck's Preset |
+| `anki_set_deck_preset_limits` | Write those limits, cloning a shared Preset first |
+| `anki_get_deck_stats` | Today's actual new/learn/review counts from the scheduler |
+
+Calls are logged to `mcp_tools.log` with arguments and results.
+
+## Deck limits: the tier problem
+
+Anki applies daily limits in three tiers, highest precedence first:
+
+```
+Today only  >  This deck  >  Preset
+```
+
+AnkiConnect can only read and write the **Preset** tier. If a deck has a "This deck" or
+"Today only" override set in Deck Options, `anki_set_deck_preset_limits` will report success
+and change the Preset while the app keeps showing the old numbers — the override wins, and
+nothing in the API can see it. Clear it by hand in Anki.
+
+`anki_get_deck_stats` reads what the scheduler actually computed for today, so use it to check
+whether a limit change took effect.
+
+## License
+
+MIT
