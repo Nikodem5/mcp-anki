@@ -231,5 +231,21 @@ def anki_set_deck_limits(deck: str, new_per_day: int = None, review_per_day: int
         return json.dumps({"error": str(e)})
 
 
+@mcp.tool()
+@logged_tool
+def anki_get_deck_stats(deck: str) -> str:
+    """Get the actual today's new/learn/review counts Anki's scheduler computes for a deck — the real numbers behind what the app UI shows, unlike deck config which is just the configured limit."""
+    try:
+        stats = anki_request("getDeckStats", decks=[deck])
+        if not stats:
+            return json.dumps({"error": f"No stats returned for deck: {deck}"})
+        for entry in stats.values():
+            if entry.get("name") == deck:
+                return json.dumps(entry)
+        return json.dumps(stats)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 if __name__ == "__main__":
     mcp.run()
