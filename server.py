@@ -159,5 +159,77 @@ def anki_delete_note(note_id: int) -> str:
         return json.dumps({"error": str(e)})
 
 
+@mcp.tool()
+@logged_tool
+def anki_get_deck_limits(deck: str) -> str:
+    """Get a deck's new-cards/day and reviews/day limits, and whether its config group is shared with other decks."""
+    try:
+        config = anki_request("getDeckConfig", deck=deck)
+        if not config:
+            return json.dumps({"error": f"Deck not found: {deck}"})
+        all_decks = anki_request("deckNames")
+        shared_with = []
+        for d in all_decks:
+            if d == deck:
+                continue
+            other = anki_request("getDeckConfig", deck=d)
+            if other and other.get("id") == config.get("id"):
+                shared_with.append(d)
+        return json.dumps({
+            "deck": deck,
+            "config_name": config.get("name"),
+            "config_id": config.get("id"),
+            "new_per_day": config.get("new", {}).get("perDay"),
+            "review_per_day": config.get("rev", {}).get("perDay"),
+            "shared_with": shared_with,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+@logged_tool
+def anki_set_deck_limits(deck: str, new_per_day: int = None, review_per_day: int = None) -> str:
+    """Set a deck's new-cards/day and/or reviews/day limit; auto-clones a shared config group to a deck-only one first so other decks aren't affected."""
+    try:
+        if new_per_day is None and review_per_day is None:
+            return json.dumps({"error": "Provide at least one of: new_per_day, review_per_day"})
+        config = anki_request("getDeckConfig", deck=deck)
+        if not config:
+            return json.dumps({"error": f"Deck not found: {deck}"})
+
+        all_decks = anki_request("deckNames")
+        shared_with = [
+            d for d in all_decks
+            if d != deck and (anki_request("getDeckConfig", deck=d) or {}).get("id") == config.get("id")
+        ]
+
+        cloned = False
+        if shared_with:
+            new_config_id = anki_request(
+                "cloneDeckConfigId", name=f"{deck} (dedicated)", cloneFrom=str(config["id"])
+            )
+            anki_request("setDeckConfigId", decks=[deck], configId=new_config_id)
+            config = anki_request("getDeckConfig", deck=deck)
+            cloned = True
+
+        if new_per_day is not None:
+            config.setdefault("new", {})["perDay"] = new_per_day
+        if review_per_day is not None:
+            config.setdefault("rev", {})["perDay"] = review_per_day
+
+        anki_request("saveDeckConfig", config=config)
+        return json.dumps({
+            "ok": True,
+            "deck": deck,
+            "new_per_day": config.get("new", {}).get("perDay"),
+            "review_per_day": config.get("rev", {}).get("perDay"),
+            "cloned_dedicated_config": cloned,
+            "was_shared_with": shared_with,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 if __name__ == "__main__":
     mcp.run()
