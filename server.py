@@ -161,8 +161,15 @@ def anki_delete_note(note_id: int) -> str:
 
 @mcp.tool()
 @logged_tool
-def anki_get_deck_limits(deck: str) -> str:
-    """Get a deck's new-cards/day and reviews/day limits, and whether its config group is shared with other decks."""
+def anki_get_deck_preset_limits(deck: str) -> str:
+    """Get a deck's new-cards/day and reviews/day limits from its Preset config, and whether that Preset is shared with other decks.
+
+    IMPORTANT: this reads only the Preset tier. Anki has three limit tiers (Today only > This deck > Preset,
+    highest precedence first); a per-deck "This deck" or "Today only" override in Anki's Deck Options can exist
+    on top of this and is invisible here — AnkiConnect has no action to read it. If the numbers shown in the
+    Anki app don't match what this returns, check the "This deck"/"Today only" tabs in Deck Options manually,
+    and use anki_get_deck_stats to see the real effective counts Anki's scheduler is using today.
+    """
     try:
         config = anki_request("getDeckConfig", deck=deck)
         if not config:
@@ -189,8 +196,16 @@ def anki_get_deck_limits(deck: str) -> str:
 
 @mcp.tool()
 @logged_tool
-def anki_set_deck_limits(deck: str, new_per_day: int = None, review_per_day: int = None) -> str:
-    """Set a deck's new-cards/day and/or reviews/day limit; auto-clones a shared config group to a deck-only one first so other decks aren't affected."""
+def anki_set_deck_preset_limits(deck: str, new_per_day: int = None, review_per_day: int = None) -> str:
+    """Set a deck's new-cards/day and/or reviews/day limit on its Preset config; auto-clones a shared Preset to a deck-only one first so other decks aren't affected.
+
+    IMPORTANT: this writes only the Preset tier. Anki has three limit tiers (Today only > This deck > Preset,
+    highest precedence first); if the deck has a "This deck" or "Today only" override set in Anki's Deck Options,
+    this call will report success and change the Preset, but the override will keep taking precedence and the
+    app will keep showing the old numbers — AnkiConnect has no action to read or write that override tier, so it
+    must be cleared manually in the Anki app. ALWAYS call anki_get_deck_stats after this to verify the change
+    actually took effect in the real scheduler counts, not just in the config.
+    """
     try:
         if new_per_day is None and review_per_day is None:
             return json.dumps({"error": "Provide at least one of: new_per_day, review_per_day"})
