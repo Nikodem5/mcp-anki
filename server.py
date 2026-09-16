@@ -161,6 +161,67 @@ def anki_delete_note(note_id: int) -> str:
 
 @mcp.tool()
 @logged_tool
+def anki_reschedule_cards(search_query: str, days: str, dry_run: bool = True) -> str:
+    """Preview, or apply, a change to when every card matching an Anki search query is next due.
+
+    This moves the cards, not the deck's limits — which is why it still works when a deck's
+    daily limit can't be lowered. Typical use is spreading a backlog of due cards back out
+    over the following days.
+
+    `days` uses Anki's setDueDate syntax:
+      "0"    due today
+      "1!"   due tomorrow, AND reset the card's interval to 1 day
+      "3-7"  a random day from 3 to 7 days out — a range is what spreads a pile out
+
+    DESTRUCTIVE, AND NOT UNDOABLE THROUGH THIS API. It overwrites the due date of every
+    matched card, turns new cards into review cards, and with a "!" suffix discards the
+    interval the card had learned. The only undo is Ctrl+Z inside the Anki app, immediately,
+    before anything else changes the collection. Previous due dates cannot be recovered
+    afterwards.
+
+    dry_run is True by default and writes nothing: it runs the search only and reports how
+    many cards WOULD be rescheduled. Always call it that way first, show the user the query
+    and the count, and call again with dry_run=False only after they confirm that exact
+    query. Do not pass dry_run=False on your own initiative.
+
+    The query is re-run when applying, so a time-sensitive query such as "is:due" can match a
+    different set of cards than the preview reported if reviews happened in between.
+    """
+    try:
+        card_ids = anki_request("findCards", query=search_query)
+        if dry_run:
+            return json.dumps({
+                "dry_run": True,
+                "query": search_query,
+                "days": days,
+                "would_reschedule": len(card_ids),
+                "note": "Nothing was changed. Call again with dry_run=false to apply.",
+            })
+        if not card_ids:
+            return json.dumps({"ok": True, "query": search_query, "rescheduled": 0})
+        anki_request("setDueDate", cards=card_ids, days=days)
+        return json.dumps({
+            "ok": True,
+            "query": search_query,
+            "days": days,
+            "rescheduled": len(card_ids),
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+@logged_tool
+def anki_list_decks() -> str:
+    """List every deck name in the collection, for getting exact deck names to pass to the other tools."""
+    try:
+        return json.dumps({"decks": anki_request("deckNames")})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+@logged_tool
 def anki_get_deck_preset_limits(deck: str) -> str:
     """Get a deck's new-cards/day and reviews/day limits from its Preset config, and whether that Preset is shared with other decks.
 
@@ -249,15 +310,36 @@ def anki_set_deck_preset_limits(deck: str, new_per_day: int = None, review_per_d
 @mcp.tool()
 @logged_tool
 def anki_get_deck_stats(deck: str) -> str:
-    """Get the actual today's new/learn/review counts Anki's scheduler computes for a deck — the real numbers behind what the app UI shows, unlike deck config which is just the configured limit."""
+    """Get the actual today's new/learn/review counts Anki's scheduler computes for a deck — the real numbers behind what the app UI shows, unlike deck config which is just the configured limit. Read-only; pass the deck's full path, as returned by anki_list_decks."""
     try:
+        # Not just validation: AnkiConnect's getDeckStats CREATES a deck when handed a name
+        # that doesn't exist, so an unchecked typo would silently add an empty deck to the
+        # collection. Verify the name against deckNames before asking for stats.
+        if deck not in anki_request("deckNames"):
+            return json.dumps({"error": f"Deck not found: {deck}"})
         stats = anki_request("getDeckStats", decks=[deck])
         if not stats:
-            return json.dumps({"error": f"No stats returned for deck: {deck}"})
-        for entry in stats.values():
-            if entry.get("name") == deck:
-                return json.dumps(entry)
-        return json.dumps(stats)
+            return json.dumps({
+                "error": f"Deck exists but AnkiConnect returned no stats for it "
+                         f"(usually means the deck holds no cards): {deck}"
+            })
+        # AnkiConnect reports `name` as the deck's basename ("e. HSK4"), not the full path
+        # ("Mandarin: Vocabulary::e. HSK4") the caller passes in — its README sample shows
+        # the full path, but live Anki does not. Match either, and fall back to the single
+        # entry, since one requested deck can only produce one result.
+        basename = deck.split("::")[-1]
+        entry = None
+        if len(stats) == 1:
+            entry = next(iter(stats.values()))
+        else:
+            for candidate in stats.values():
+                if candidate.get("name") in (deck, basename):
+                    entry = candidate
+                    break
+        if entry is None:
+            return json.dumps(stats)
+        # `name` alone is ambiguous once it's a basename, so echo back what was asked for.
+        return json.dumps({"deck": deck, **entry})
     except Exception as e:
         return json.dumps({"error": str(e)})
 

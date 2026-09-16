@@ -43,6 +43,8 @@ Anki has to be open for anything except `hello` to work.
 | `anki_get_notes` | Fetch fields, tags, and deck for notes matching a query |
 | `anki_update_card` | Update front, back, and/or tags of a note |
 | `anki_delete_note` | Delete a note and its cards |
+| `anki_reschedule_cards` | Move the due date of every card matching a query; previews by default |
+| `anki_list_decks` | List every deck name in the collection |
 | `anki_get_deck_preset_limits` | Read new/day and review/day from the deck's Preset |
 | `anki_set_deck_preset_limits` | Write those limits, cloning a shared Preset first |
 | `anki_get_deck_stats` | Today's actual new/learn/review counts from the scheduler |
@@ -64,6 +66,12 @@ nothing in the API can see it. Clear it by hand in Anki.
 
 `anki_get_deck_stats` reads what the scheduler actually computed for today, so use it to check
 whether a limit change took effect.
+
+When the limit tiers won't cooperate, `anki_reschedule_cards` goes around them: instead of
+capping how many cards a day shows, it moves the cards themselves. `deck:"HSK 4" is:due` with
+`days="1-14"` spreads a backlog of 220 due cards over the next two weeks at roughly 16 a day.
+It previews by default (`dry_run` is `True`); applying it overwrites due dates irreversibly,
+with Ctrl+Z in the Anki app as the only undo.
 
 ## License
 
