@@ -344,5 +344,20 @@ def anki_get_deck_stats(deck: str) -> str:
         return json.dumps({"error": str(e)})
 
 
+@mcp.tool()
+@logged_tool
+def anki_sync() -> str:
+    """Sync the local collection with AnkiWeb, so cards added or edited here reach the user's other devices. Safe to call after a batch of writes."""
+    try:
+        # AnkiConnect returns null on success; report the call itself instead.
+        anki_request("sync")
+        return json.dumps({"synced": True})
+    except Exception as e:
+        # A large or long-stalled collection can outlast anki_request's 10s timeout, and a
+        # conflict makes Anki raise a full-sync dialog that blocks until a human answers it.
+        # Either way the sync may still finish in the app — this only reports the call.
+        return json.dumps({"error": str(e)})
+
+
 if __name__ == "__main__":
     mcp.run()

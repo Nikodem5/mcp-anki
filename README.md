@@ -48,6 +48,7 @@ Anki has to be open for anything except `hello` to work.
 | `anki_get_deck_preset_limits` | Read new/day and review/day from the deck's Preset |
 | `anki_set_deck_preset_limits` | Write those limits, cloning a shared Preset first |
 | `anki_get_deck_stats` | Today's actual new/learn/review counts from the scheduler |
+| `anki_sync` | Sync the collection with AnkiWeb |
 
 Calls are logged to `mcp_tools.log` with arguments and results.
 
