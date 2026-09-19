@@ -32,8 +32,12 @@ def anki_request(action: str, **params):
     payload = {"action": action, "version": 6}
     if params:
         payload["params"] = params
+    # 127.0.0.1, not localhost: Windows resolves localhost to ::1 first, and AnkiConnect
+    # binds IPv4 only (its webBindAddress default is 127.0.0.1), so every request through
+    # "localhost" burns ~2s on a refused IPv6 attempt before falling back. Measured
+    # 2026-09-19: 2.06s per call via localhost vs 0.03s via 127.0.0.1.
     req = urllib.request.Request(
-        "http://localhost:8765",
+        "http://127.0.0.1:8765",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
