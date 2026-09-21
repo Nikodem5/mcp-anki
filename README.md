@@ -8,13 +8,14 @@ Anki is the only data store, the server keeps no state of its own.
 ## Requirements
 
 - Python 3.13+ and [uv](https://docs.astral.sh/uv/)
-- Anki Desktop running, with AnkiConnect (add-on code `2055492159`) on `localhost:8765`
+- Anki Desktop running, with AnkiConnect (add-on code `2055492159`) on `127.0.0.1:8765`
 
 ## Run
 
 ```bash
 uv sync
-uv run server.py
+uv run mcp-anki --check   # confirm AnkiConnect is reachable before wiring up a client
+uv run mcp-anki
 ```
 
 Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
@@ -22,21 +23,28 @@ Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "chunk-factory": {
+    "mcp-anki": {
       "command": "FULL_PATH_TO_UV",
-      "args": ["--directory", "FULL_PATH_TO_PROJECT", "run", "server.py"]
+      "args": ["--directory", "FULL_PATH_TO_PROJECT", "run", "mcp-anki"]
     }
   }
 }
 ```
 
-Anki has to be open for anything except `hello` to work.
+Optional environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANKI_CONNECT_URL` | `http://127.0.0.1:8765` | Where AnkiConnect is listening |
+| `ANKI_CONNECT_KEY` | unset | API key, if AnkiConnect's `requestPermission` requires one |
+| `MCP_ANKI_LOG` | `mcp_tools.log` | Path to the call log |
+
+Anki has to be open for every tool to work.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `hello` | Confirm the server is running |
 | `test_anki_connection` | Confirm AnkiConnect is reachable |
 | `anki_check_exists` | Search for existing notes before creating a duplicate |
 | `anki_add_card` | Create a Basic card in a deck |
