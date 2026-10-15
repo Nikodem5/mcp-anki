@@ -47,12 +47,21 @@ Anki has to be open for every tool to work.
 |---|---|
 | `test_anki_connection` | Confirm AnkiConnect is reachable |
 | `anki_check_exists` | Search for existing notes before creating a duplicate |
-| `anki_add_card` | Create a Basic card in a deck |
+| `anki_add_card` | Create a note of any note type in a deck |
 | `anki_get_notes` | Fetch fields, tags, and deck for notes matching a query |
-| `anki_update_card` | Update front, back, and/or tags of a note |
+| `anki_update_card` | Update fields and/or tags of a note; unknown field names raise |
+| `anki_add_cards` | Add up to 100 notes in one all-or-nothing batch |
+| `anki_can_add_cards` | Pre-flight a batch without writing |
+| `anki_list_models` | List note types |
+| `anki_get_model_fields` | A note type's field names and descriptions |
+| `anki_get_cards` | Card-level scheduling data (interval, ease, lapses, due) |
 | `anki_delete_note` | Delete a note and its cards |
 | `anki_reschedule_cards` | Move the due date of every card matching a query; previews by default |
 | `anki_list_decks` | List every deck name in the collection |
+| `anki_list_decks_with_ids` | Deck names with ids |
+| `anki_create_deck` | Create a deck if missing |
+| `anki_move_cards` | Move cards matching ids or a query to another deck |
+| `anki_delete_deck` | Delete a deck and its cards; previews by default |
 | `anki_get_deck_preset_limits` | Read new/day and review/day from the deck's Preset |
 | `anki_set_deck_preset_limits` | Write those limits, cloning a shared Preset first |
 | `anki_get_deck_stats` | Today's actual new/learn/review counts from the scheduler |
