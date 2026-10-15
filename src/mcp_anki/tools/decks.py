@@ -136,3 +136,93 @@ def anki_get_deck_stats(deck: Annotated[str, DECK_FIELD]) -> dict[str, Any]:
         return stats
     # `name` alone is ambiguous once it's a basename, so echo back what was asked for.
     return {"deck": deck, **entry}
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@logged_tool
+def anki_list_decks_with_ids(
+    limit: Annotated[int, Field(description="Maximum number of decks to return.", ge=1, le=1000)] = 200,
+) -> dict[str, Any]:
+    """List decks as {name, id} pairs. Same names as anki_list_decks, plus the numeric deck id. Read-only."""
+    mapping = anki_request("deckNamesAndIds")
+    decks = [{"name": name, "id": deck_id} for name, deck_id in mapping.items()]
+    return {"total": len(decks), "decks": decks[:limit], "truncated": len(decks) > limit}
+
+
+@mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+@logged_tool
+def anki_create_deck(
+    deck: Annotated[str, Field(description="Full deck name to create; use '::' for nesting, e.g. 'Mandarin::Production'.")],
+) -> dict[str, Any]:
+    """Create a deck if it does not exist. Safe to call for an existing deck: nothing is changed and `created` is false.
+
+    anki_add_card does not auto-create decks, so use this first when a target deck is missing.
+    """
+    if not deck.strip():
+        raise ValueError("deck must not be empty")
+    existed = deck in anki_request("deckNames")
+    deck_id = anki_request("createDeck", deck=deck)
+    return {"ok": True, "deck": deck, "id": deck_id, "created": not existed}
+
+
+def _deck_query(deck: str) -> str:
+    escaped = deck.replace("\\", "\\\\").replace('"', '\\"').replace("*", r"\*").replace("_", r"\_")
+    return f'deck:"{escaped}"'
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True))
+@logged_tool
+def anki_move_cards(
+    deck: Annotated[str, Field(description="Exact name of the existing destination deck.")],
+    card_ids: Annotated[list[int] | None, Field(description="Card ids to move. Provide this or query, not both.")] = None,
+    query: Annotated[str | None, Field(description="Anki search query selecting the cards to move. Provide this or card_ids.")] = None,
+    limit: Annotated[int, Field(description="Safety cap: refuse (move nothing) if more cards than this match.", ge=1, le=10000)] = 500,
+) -> dict[str, Any]:
+    """Move existing cards to another existing deck.
+
+    Not gated by dry_run because it is reversible: the result lists `moved_from` (source deck ->
+    count), so cards can be moved back. The count is resolved before writing and the call refuses
+    if it exceeds `limit`. The destination must already exist (AnkiConnect's changeDeck would
+    silently create it; use anki_create_deck first). Scheduling data is preserved.
+    """
+    if (card_ids is None) == (query is None):
+        raise ValueError("Provide exactly one of: card_ids, query")
+    if deck not in anki_request("deckNames"):
+        return {"error": f"Deck not found: {deck}"}
+    ids = card_ids if card_ids is not None else anki_request("findCards", query=query)
+    if not ids:
+        return {"ok": True, "deck": deck, "moved": 0}
+    if len(ids) > limit:
+        return {"error": f"{len(ids)} cards match, above limit={limit}; nothing moved. Narrow the selection or raise limit."}
+    sources = anki_request("getDecks", cards=ids)
+    moved_from = {name: len(cids) for name, cids in sources.items()}
+    anki_request("changeDeck", cards=ids, deck=deck)
+    return {"ok": True, "deck": deck, "moved": len(ids), "moved_from": moved_from}
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+@logged_tool
+def anki_delete_deck(
+    deck: Annotated[str, DECK_FIELD],
+    dry_run: Annotated[bool, Field(description="If true (default), only report what would be deleted. Do not pass false unless the user explicitly asked for the deletion.")] = True,
+) -> dict[str, Any]:
+    """Delete a deck, ALL its subdecks, and ALL cards in them. DESTRUCTIVE; cannot be undone through this API.
+
+    Defaults to dry_run=True, which returns the subdecks and card count that would be removed
+    without writing. Do NOT pass dry_run=False unprompted: show the user the preview and
+    get explicit confirmation first. AnkiConnect only supports deleting a deck together with
+    its cards (cardsToo is mandatory), so to keep the cards, move them first with anki_move_cards.
+    The built-in 'Default' deck is refused. Nonexistent decks are refused.
+    """
+    all_decks = anki_request("deckNames")
+    if deck not in all_decks:
+        return {"error": f"Deck not found: {deck}"}
+    if deck == "Default":
+        return {"error": "Refusing to delete the built-in 'Default' deck."}
+    affected = [d for d in all_decks if d == deck or d.startswith(deck + "::")]
+    card_count = len(anki_request("findCards", query=_deck_query(deck)))
+    preview = {"deck": deck, "decks_affected": affected, "cards_affected": card_count}
+    if dry_run:
+        return {"dry_run": True, **preview}
+    anki_request("deleteDecks", decks=[deck], cardsToo=True)
+    return {"dry_run": False, "ok": True, **preview}
