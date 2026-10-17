@@ -48,6 +48,20 @@ def anki_get_deck_preset_limits(deck: Annotated[str, DECK_FIELD]) -> dict[str, A
     }
 
 
+def _live_new_review_counts(deck: str) -> dict[str, int] | None:
+    """Best-effort read of today's live new_count/review_count for one deck.
+
+    Used only by anki_set_deck_preset_limits's post-write override check. Returns None if the
+    stats payload is ambiguous (multiple decks matched, none by name) rather than guessing —
+    a missed check is safer than a wrong one here.
+    """
+    stats = anki_request("getDeckStats", decks=[deck])
+    if not stats or len(stats) != 1:
+        return None
+    entry = next(iter(stats.values()))
+    return {"new_count": entry.get("new_count"), "review_count": entry.get("review_count")}
+
+
 @mcp.tool()
 @logged_tool
 def anki_set_deck_preset_limits(
@@ -61,12 +75,20 @@ def anki_set_deck_preset_limits(
 ) -> dict[str, Any]:
     """Set a deck's new-cards/day and/or reviews/day limit on its Preset config; auto-clones a shared Preset to a deck-only one first so other decks aren't affected.
 
-    IMPORTANT: this writes only the Preset tier. Anki has three limit tiers (Today only > This deck > Preset,
-    highest precedence first); if the deck has a "This deck" or "Today only" override set in Anki's Deck Options,
-    this call will report success and change the Preset, but the override will keep taking precedence and the
-    app will keep showing the old numbers — AnkiConnect has no action to read or write that override tier, so it
-    must be cleared manually in the Anki app. ALWAYS call anki_get_deck_stats after this to verify the change
-    actually took effect in the real scheduler counts, not just in the config.
+    Anki has three limit tiers (Today only > This deck > Preset, highest precedence first).
+    AnkiConnect can only read or write the Preset tier — a "This deck" or "Today only"
+    override in Deck Options silently wins over whatever this call sets, and there is no
+    AnkiConnect action to read or clear it; it has to be cleared by hand in the app (open the
+    deck's Options, and for the affected field switch its tab from "This deck"/"Today only"
+    back to "Preset").
+
+    Because that failure mode is silent, this call checks itself: right after saving, it reads
+    the live scheduler counts and an independent search count, and returns
+    `override_suspected` (a list of the affected field names, or False) plus `live_check` with
+    the raw numbers behind that verdict. `override_suspected` is a heuristic, not a certainty —
+    the same signature (live count lower than both the new limit and the available backlog)
+    can also happen if the deck's daily quota was already used up through normal studying
+    earlier today. Treat a suspected override as "go check Deck Options", not confirmed fact.
     """
     if new_per_day is None and review_per_day is None:
         raise ValueError("Provide at least one of: new_per_day, review_per_day")
@@ -95,7 +117,8 @@ def anki_set_deck_preset_limits(
         config.setdefault("rev", {})["perDay"] = review_per_day
 
     anki_request("saveDeckConfig", config=config)
-    return {
+
+    result = {
         "ok": True,
         "deck": deck,
         "new_per_day": config.get("new", {}).get("perDay"),
@@ -103,6 +126,33 @@ def anki_set_deck_preset_limits(
         "cloned_dedicated_config": cloned,
         "was_shared_with": shared_with,
     }
+
+    # Self-check: see the docstring. A leftover "This deck"/"Today only" override otherwise
+    # fails silently — the config write above reports ok:true regardless of whether it does
+    # anything at all, which is exactly how that bug went unnoticed for weeks in practice.
+    live = _live_new_review_counts(deck)
+    result["live_check"] = live
+    if live is not None:
+        suspected = []
+        if new_per_day is not None and live["new_count"] is not None:
+            true_new = len(anki_request("findCards", query=f"{_deck_query(deck)} is:new"))
+            if live["new_count"] < min(new_per_day, true_new):
+                suspected.append("new_per_day")
+        if review_per_day is not None and live["review_count"] is not None:
+            true_due = len(anki_request("findCards", query=f"{_deck_query(deck)} is:due"))
+            if live["review_count"] < min(review_per_day, true_due):
+                suspected.append("review_per_day")
+        result["override_suspected"] = suspected if suspected else False
+        if suspected:
+            result["override_note"] = (
+                "The live scheduler is showing fewer cards than this Preset change and the "
+                "available backlog both allow for: " + ", ".join(suspected) + ". Most likely "
+                "cause: a \"This deck\" or \"Today only\" override in Anki's Deck Options is "
+                "still winning over the Preset — open Deck Options and switch that field's tab "
+                "back to \"Preset\". Less likely: this deck's quota for today was already used "
+                "up through normal studying before this call."
+            )
+    return result
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

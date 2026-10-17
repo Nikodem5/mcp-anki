@@ -55,7 +55,7 @@ Anki has to be open for every tool to work.
 | `anki_list_models` | List note types |
 | `anki_get_model_fields` | A note type's field names and descriptions |
 | `anki_get_cards` | Card-level scheduling data (interval, ease, lapses, due) |
-| `anki_delete_note` | Delete a note and its cards |
+| `anki_delete_note` | Delete a note and its cards; previews by default |
 | `anki_reschedule_cards` | Move the due date of every card matching a query; previews by default |
 | `anki_list_decks` | List every deck name in the collection |
 | `anki_list_decks_with_ids` | Deck names with ids |
