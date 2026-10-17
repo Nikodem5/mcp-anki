@@ -21,7 +21,7 @@ def test_anki_connection() -> dict[str, Any]:
         return {"connected": False, "error": str(e)}
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True, openWorldHint=True))
 @logged_tool
 def anki_sync() -> dict[str, Any]:
     """Sync the local collection with AnkiWeb, so cards added or edited here reach the user's other devices. Safe to call after a batch of writes."""

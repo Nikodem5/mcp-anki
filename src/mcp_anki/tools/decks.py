@@ -29,7 +29,7 @@ def anki_get_deck_preset_limits(deck: Annotated[str, DECK_FIELD]) -> dict[str, A
     """
     config = anki_request("getDeckConfig", deck=deck)
     if not config:
-        return {"error": f"Deck not found: {deck}"}
+        raise ValueError(f"Deck not found: {deck}")
     all_decks = anki_request("deckNames")
     shared_with = []
     for d in all_decks:
@@ -62,7 +62,7 @@ def _live_new_review_counts(deck: str) -> dict[str, int] | None:
     return {"new_count": entry.get("new_count"), "review_count": entry.get("review_count")}
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True))
 @logged_tool
 def anki_set_deck_preset_limits(
     deck: Annotated[str, DECK_FIELD],
@@ -94,7 +94,7 @@ def anki_set_deck_preset_limits(
         raise ValueError("Provide at least one of: new_per_day, review_per_day")
     config = anki_request("getDeckConfig", deck=deck)
     if not config:
-        return {"error": f"Deck not found: {deck}"}
+        raise ValueError(f"Deck not found: {deck}")
 
     all_decks = anki_request("deckNames")
     shared_with = [
@@ -132,7 +132,17 @@ def anki_set_deck_preset_limits(
     # anything at all, which is exactly how that bug went unnoticed for weeks in practice.
     live = _live_new_review_counts(deck)
     result["live_check"] = live
-    if live is not None:
+    if live is not None and any(d.startswith(deck + "::") for d in anki_request("deckNames")):
+        # A parent's live count is also capped by each subdeck's own limits, and the card
+        # searches below include subdeck cards, so the heuristic can't tell an override from
+        # a legitimate subdeck cap. Say so instead of guessing.
+        result["override_suspected"] = None
+        result["override_note"] = (
+            "This deck has subdecks, whose own limits also cap the live count, so an override "
+            "can't be detected automatically. Compare live_check with anki_get_deck_stats on "
+            "the subdecks, or check Deck Options by hand."
+        )
+    elif live is not None:
         suspected = []
         if new_per_day is not None and live["new_count"] is not None:
             true_new = len(anki_request("findCards", query=f"{_deck_query(deck)} is:new"))
@@ -162,7 +172,7 @@ def anki_get_deck_stats(deck: Annotated[str, DECK_FIELD]) -> dict[str, Any]:
     # Not just validation: AnkiConnect's getDeckStats CREATES a deck when handed a name that
     # doesn't exist, so an unchecked typo would silently add an empty deck to the collection.
     if deck not in anki_request("deckNames"):
-        return {"error": f"Deck not found: {deck}"}
+        raise ValueError(f"Deck not found: {deck}")
     stats = anki_request("getDeckStats", decks=[deck])
     if not stats:
         return {
@@ -191,9 +201,10 @@ def anki_get_deck_stats(deck: Annotated[str, DECK_FIELD]) -> dict[str, Any]:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 @logged_tool
 def anki_list_decks_with_ids(
-    limit: Annotated[int, Field(description="Maximum number of decks to return.", ge=1, le=1000)] = 200,
+    limit: Annotated[int | None, Field(description="Maximum number of decks to return (default 200). Omit or pass null for the default.", ge=1, le=1000)] = None,
 ) -> dict[str, Any]:
     """List decks as {name, id} pairs. Same names as anki_list_decks, plus the numeric deck id. Read-only."""
+    limit = 200 if limit is None else limit
     mapping = anki_request("deckNamesAndIds")
     decks = [{"name": name, "id": deck_id} for name, deck_id in mapping.items()]
     return {"total": len(decks), "decks": decks[:limit], "truncated": len(decks) > limit}
@@ -226,7 +237,7 @@ def anki_move_cards(
     deck: Annotated[str, Field(description="Exact name of the existing destination deck.")],
     card_ids: Annotated[list[int] | None, Field(description="Card ids to move. Provide this or query, not both.")] = None,
     query: Annotated[str | None, Field(description="Anki search query selecting the cards to move. Provide this or card_ids.")] = None,
-    limit: Annotated[int, Field(description="Safety cap: refuse (move nothing) if more cards than this match.", ge=1, le=10000)] = 500,
+    limit: Annotated[int | None, Field(description="Safety cap: refuse (move nothing) if more cards than this match (default 500). Omit or pass null for the default.", ge=1, le=10000)] = None,
 ) -> dict[str, Any]:
     """Move existing cards to another existing deck.
 
@@ -235,15 +246,16 @@ def anki_move_cards(
     if it exceeds `limit`. The destination must already exist (AnkiConnect's changeDeck would
     silently create it; use anki_create_deck first). Scheduling data is preserved.
     """
+    limit = 500 if limit is None else limit
     if (card_ids is None) == (query is None):
         raise ValueError("Provide exactly one of: card_ids, query")
     if deck not in anki_request("deckNames"):
-        return {"error": f"Deck not found: {deck}"}
+        raise ValueError(f"Deck not found: {deck}")
     ids = card_ids if card_ids is not None else anki_request("findCards", query=query)
     if not ids:
         return {"ok": True, "deck": deck, "moved": 0}
     if len(ids) > limit:
-        return {"error": f"{len(ids)} cards match, above limit={limit}; nothing moved. Narrow the selection or raise limit."}
+        raise ValueError(f"{len(ids)} cards match, above limit={limit}; nothing moved. Narrow the selection or raise limit.")
     sources = anki_request("getDecks", cards=ids)
     moved_from = {name: len(cids) for name, cids in sources.items()}
     anki_request("changeDeck", cards=ids, deck=deck)
@@ -266,9 +278,9 @@ def anki_delete_deck(
     """
     all_decks = anki_request("deckNames")
     if deck not in all_decks:
-        return {"error": f"Deck not found: {deck}"}
+        raise ValueError(f"Deck not found: {deck}")
     if deck == "Default":
-        return {"error": "Refusing to delete the built-in 'Default' deck."}
+        raise ValueError("Refusing to delete the built-in 'Default' deck.")
     affected = [d for d in all_decks if d == deck or d.startswith(deck + "::")]
     card_count = len(anki_request("findCards", query=_deck_query(deck)))
     preview = {"deck": deck, "decks_affected": affected, "cards_affected": card_count}

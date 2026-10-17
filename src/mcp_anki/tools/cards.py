@@ -88,13 +88,13 @@ def anki_get_cards(
         str, Field(description="Anki search syntax, e.g. 'deck:Production prop:lapses>3' or 'is:suspended'.")
     ],
     limit: Annotated[
-        int,
+        int | None,
         Field(
-            description=f"Maximum number of cards to return (1-{MAX_CARD_LIMIT}).",
+            description=f"Maximum number of cards to return (1-{MAX_CARD_LIMIT}, default {DEFAULT_CARD_LIMIT}). Omit or pass null for the default.",
             ge=1,
             le=MAX_CARD_LIMIT,
         ),
-    ] = DEFAULT_CARD_LIMIT,
+    ] = None,
 ) -> dict[str, Any]:
     """Retrieve card-level scheduling state for cards matching a search query.
 
@@ -117,6 +117,7 @@ def anki_get_cards(
     Results are capped at `limit`; `matched` is the total the query found. Only the returned
     slice is fetched in detail.
     """
+    limit = DEFAULT_CARD_LIMIT if limit is None else limit
     card_ids = anki_request("findCards", query=search_query)
     matched = len(card_ids)
     card_ids = card_ids[:limit]
