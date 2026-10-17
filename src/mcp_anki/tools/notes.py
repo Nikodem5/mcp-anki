@@ -123,10 +123,11 @@ def anki_add_card(
         str, Field(description="Space-separated Anki tags, e.g. 'chinese hsk4'. Empty string for no tags.")
     ] = "",
 ) -> dict[str, Any]:
-    """Create a single note of any note type in the specified deck.
+    """Create a single note of ANY note type (Basic, Cloze, custom, ...) in the specified deck.
 
-    Defaults to the Basic note type with front/back. For other types pass `model` and
-    `fields`. The model and field names are validated first; unknown ones raise. Anki's
+    Main route: pass `model` plus `fields` (field name -> content); call anki_list_models and
+    anki_get_model_fields first to get exact names. `front`/`back` are only shortcuts for
+    Basic-style note types and default `model` to Basic. The model and field names are validated first; unknown ones raise. Anki's
     duplicate check (first field, same note type) rejects the add if it matches.
     """
     spec = NoteSpec(deck=deck, fields=_build_fields(front, back, fields), model=model, tags=tags)
@@ -238,14 +239,18 @@ def anki_update_card(
     ] = None,
     fields: Annotated[
         dict[str, str] | None,
-        Field(description="Field name -> new content, for any note type. Only the named fields change. Names must match the note's actual fields exactly (anki_get_notes shows them)."),
+        Field(description="Field name -> new content, for any note type (the main parameter; front/back are Basic-only shortcuts). Only the named fields change. Names must match the note's actual fields exactly (anki_get_notes shows them)."),
     ] = None,
     tags: Annotated[
         str | None,
         Field(description="Space-separated tags to replace the note's entire tag set. Omit or pass null to leave unchanged."),
     ] = None,
 ) -> dict[str, Any]:
-    """Update fields and/or tags of an existing note by ID. Only provided values are changed.
+    """Edit an EXISTING note of ANY note type (Basic, Cloze, custom, ...) by ID. Only provided values change.
+
+    Main route: pass `fields` (field name -> new content); anki_get_notes shows the note's
+    exact field names. `front`/`back` are only shortcuts for Basic-style notes. The write is
+    not undoable through the API, so read the note first if the old content matters.
 
     Field names are validated against the note's real note type; an unknown name raises
     instead of being silently ignored.
@@ -272,7 +277,28 @@ def anki_delete_note(
     note_id: Annotated[
         int, Field(description="The Anki note ID to delete, as returned by anki_add_card or anki_get_notes.")
     ],
+    dry_run: Annotated[
+        bool,
+        Field(description="If true (default), only report what would be deleted. Pass false only after the user has seen the preview and approved."),
+    ] = True,
 ) -> dict[str, Any]:
-    """Hard-delete a note and all its cards from Anki. Not undoable through this API."""
+    """Delete a note and all its cards from Anki. Previews by default.
+
+    This cannot be undone through the API. With the default dry_run=True nothing is
+    deleted and the note's fields and card count are returned. Do NOT pass dry_run=False
+    unless the user has seen that preview and explicitly approved the deletion.
+    """
+    info = anki_request("notesInfo", notes=[note_id])
+    if not info or not info[0]:
+        raise ValueError(f"note {note_id} was not found")
+    note = info[0]
+    preview = {
+        "note_id": note_id,
+        "model": note.get("modelName"),
+        "cards": len(note.get("cards", [])),
+        "fields": {k: v["value"][:80] for k, v in note.get("fields", {}).items()},
+    }
+    if dry_run:
+        return {"ok": True, "dry_run": True, "would_delete": preview}
     anki_request("deleteNotes", notes=[note_id])
-    return {"ok": True}
+    return {"ok": True, "dry_run": False, "deleted": preview}
