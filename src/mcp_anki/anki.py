@@ -15,8 +15,10 @@ logger.addHandler(_handler)
 def anki_request(action: str, **params):
     # findCards("") / findNotes("") return the entire collection instead of erroring, so a
     # blank query is rejected here once rather than in every tool that takes a search string.
-    if "query" in params and not (params["query"] or "").strip():
-        raise ValueError("query must not be empty or whitespace-only")
+    if "query" in params:
+        q = (params["query"] or "").strip().strip('"').strip()
+        if not q or q.lower() in {"*", "deck:*"}:
+            raise ValueError("query must not be empty, whitespace-only or match the whole collection (e.g. 'deck:*')")
     payload = {"action": action, "version": 6}
     if params:
         payload["params"] = params

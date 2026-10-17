@@ -97,7 +97,7 @@ def anki_check_exists(
     return {"exists": len(note_ids) > 0, "count": len(note_ids)}
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False, idempotentHint=False))
 @logged_tool
 def anki_add_card(
     deck: Annotated[
@@ -117,11 +117,11 @@ def anki_add_card(
         Field(description="Field name -> content, e.g. {'Text': 'The {{c1::cat}} sat.'} for Cloze. Names must match the note type's fields exactly (see anki_get_model_fields)."),
     ] = None,
     model: Annotated[
-        str, Field(description="Exact note type name, as returned by anki_list_models.")
-    ] = "Basic",
+        str | None, Field(description="Exact note type name, as returned by anki_list_models. Omit or pass null for Basic.")
+    ] = None,
     tags: Annotated[
-        str, Field(description="Space-separated Anki tags, e.g. 'chinese hsk4'. Empty string for no tags.")
-    ] = "",
+        str | None, Field(description="Space-separated Anki tags, e.g. 'chinese hsk4'. Omit or pass null for no tags.")
+    ] = None,
 ) -> dict[str, Any]:
     """Create a single note of ANY note type (Basic, Cloze, custom, ...) in the specified deck.
 
@@ -130,12 +130,12 @@ def anki_add_card(
     Basic-style note types and default `model` to Basic. The model and field names are validated first; unknown ones raise. Anki's
     duplicate check (first field, same note type) rejects the add if it matches.
     """
-    spec = NoteSpec(deck=deck, fields=_build_fields(front, back, fields), model=model, tags=tags)
+    spec = NoteSpec(deck=deck, fields=_build_fields(front, back, fields), model=model or "Basic", tags=tags or "")
     note_id = anki_request("addNote", note=_note_payload(spec, {}))
     return {"ok": True, "note_id": note_id}
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False, idempotentHint=False))
 @logged_tool
 def anki_add_cards(
     notes: Annotated[
@@ -190,10 +190,11 @@ def anki_get_notes(
         str, Field(description="Anki search syntax, e.g. 'deck:Production tag:leech'.")
     ],
     limit: Annotated[
-        int, Field(description="Maximum number of notes to return.", gt=0)
-    ] = DEFAULT_NOTE_LIMIT,
+        int | None, Field(description=f"Maximum number of notes to return (default {DEFAULT_NOTE_LIMIT}). Omit or pass null for the default.", gt=0)
+    ] = None,
 ) -> dict[str, Any]:
     """Retrieve full note content (all fields, tags, deck, note type) for notes matching a search query."""
+    limit = DEFAULT_NOTE_LIMIT if limit is None else limit
     note_ids = anki_request("findNotes", query=search_query)
     matched = len(note_ids)
     note_ids = note_ids[:limit]
@@ -225,7 +226,7 @@ def anki_get_notes(
     return {"matched": matched, "returned": len(results), "notes": results}
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True))
 @logged_tool
 def anki_update_card(
     note_id: Annotated[
