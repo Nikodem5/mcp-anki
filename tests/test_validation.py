@@ -187,3 +187,16 @@ def test_dry_run_null_is_rejected_not_coerced(anki, call, name, args):
     with pytest.raises(ToolError):
         call(name, {**args, "dry_run": None})
     assert not anki.calls
+
+
+@pytest.mark.parametrize("name,args", [
+    ("anki_get_notes", {"search_query": "deck:D", "limit": 0}),
+    ("anki_list_decks_with_ids", {"limit": 0}),
+    ("anki_list_decks_with_ids", {"limit": 1001}),
+    ("anki_move_cards", {"deck": "D", "query": "deck:D", "limit": 0}),
+    ("anki_move_cards", {"deck": "D", "query": "deck:D", "limit": 10001}),
+])
+def test_limit_bounds_enforced_by_schema(anki, call, name, args):
+    with pytest.raises(ToolError):
+        call(name, args)
+    assert not anki.calls
