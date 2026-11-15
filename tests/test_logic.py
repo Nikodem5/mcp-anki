@@ -141,6 +141,25 @@ def test_get_cards_drops_vanished_cards(anki, tool):
     assert (r["matched"], r["returned"]) == (1, 0)
 
 
+def test_get_cards_preview_skips_empty_orders_caps_and_truncates(anki, tool):
+    anki.models["Four"] = ["A", "Empty", "B", "C", "D"]
+    long_val = "x" * 70
+    anki.add_note("D", model="Four", fields={"A": "first", "Empty": " <b> </b> ", "B": long_val, "C": "third", "D": "fourth"})
+    preview = tool("anki_get_cards")("deck:D")["cards"][0]["fields_preview"]
+    assert list(preview) == ["A", "B", "C"]
+    assert preview["B"] == "x" * 59 + "…" and len(preview["B"]) == 60
+
+
+def test_get_cards_day_learning_and_buried_due_kinds(anki, tool):
+    anki.add_note("D", type=3, queue=3, due=42)
+    anki.add_note("D", type=2, queue=-2, due=500)
+    anki.add_note("D", type=1, queue=-3, due=1700000000)
+    cards = tool("anki_get_cards")("deck:D")["cards"]
+    assert cards[0]["queue"] == "day learning" and cards[0]["due_kind"].startswith("day number")
+    assert cards[1]["queue"] == "buried (manual)" and cards[1]["due_kind"].startswith("day number")
+    assert cards[2]["queue"] == "buried (scheduler)" and cards[2]["due_kind"].startswith("epoch seconds")
+
+
 def test_get_cards_limit_bounds_enforced_by_schema(anki, call):
     from mcp.server.fastmcp.exceptions import ToolError
     for bad in (0, 101):
@@ -194,15 +213,43 @@ def test_get_notes_deck_and_matched(anki, tool):
     assert (r["matched"], r["returned"]) == (2, 1) and r["notes"][0]["deck"] == "D"
 
 
+def test_get_notes_no_match_skips_info_and_decks(anki, tool):
+    anki.add_deck("Empty")
+    r = tool("anki_get_notes")("deck:Empty")
+    assert r == {"matched": 0, "returned": 0, "notes": []}
+    assert "notesInfo" not in anki.actions() and "getDecks" not in anki.actions()
+
+
+def test_move_cards_no_match_skips_changedeck(anki, tool):
+    anki.add_deck("Src")
+    anki.add_deck("Dst")
+    r = tool("anki_move_cards")("Dst", query="deck:Src")
+    assert r == {"ok": True, "deck": "Dst", "moved": 0}
+    assert "changeDeck" not in anki.actions() and "getDecks" not in anki.actions()
+
+
+def test_deck_query_escapes_special_characters():
+    from mcp_anki.tools.decks import _deck_query
+    assert _deck_query('A\\B "C" *D_E') == r'deck:"A\\B \"C\" \*D\_E"'
+
+
 def test_delete_note_missing_errors(anki, tool):
     assert "error" in tool("anki_delete_note")(12345)
     assert "deleteNotes" not in anki.actions()
 
 
+def test_delete_note_preview_truncates_long_fields(anki, tool):
+    nid, _ = anki.add_note(fields={"Front": "a" * 120})
+    r = tool("anki_delete_note")(nid)
+    assert r["dry_run"] is True and len(r["would_delete"]["fields"]["Front"]) == 80
+
+
 def test_models_tools(anki, tool):
     assert tool("anki_list_models")()["models"] == ["Basic", "Cloze"]
+    anki.a_modelFieldDescriptions = lambda modelName: ["Prompt"]
     f = tool("anki_get_model_fields")("Basic")
-    assert [x["name"] for x in f["fields"]] == ["Front", "Back"]
+    assert f["fields"] == [{"name": "Front", "description": "Prompt"}, {"name": "Back", "description": ""}]
+    assert "error" in tool("anki_get_model_fields")("Missing")
 
 
 def test_connection_and_sync(anki, tool):
